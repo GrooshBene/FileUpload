@@ -1,33 +1,47 @@
 var express = require('express');
-var multer = require('multer');
-var app = express();
-var done = false;
-
-app.use(multer({
-  dest: './uploads',
-  rename : function(fieldname, filename){
-    return filename+Date.now();
-  },
-  onFileUploadStart: function(file){
-    console.log(file.originalname+ 'is starting...');
-  },
-  onFileUploadComplete: function(file){
-    console.log(file.fieldname+'uploaded to '+file.path);
-    done = true;
-  }
-}));
-
-app.get('/',function(req,res){
-  res.sendfile("index.html");
+var fs = require('fs');
+var mongo = require('mongodb');
+var Grid = require('gridfs-stream');
+var db = new mongo.Db('test', new mongo.Server("127.0.0.1", 27017), {
+  safe: false
 });
 
-app.post('/api/photo', function(req,res){
-  if(done==true){
-    console.log(req.files);
-    res.end("File uploaded");
+db.open(function(err) {
+  if (err) {
+    throw err;
   }
-});
+  var gfs = Grid(db, mongo);
+  var app = express();
 
-app.listen(3000, function(){
-  console.log("Server Opened on Port 3000");
+  app.use(express.bodyParser());
+  app.post('/upload', function(req, res) {
+    var tempfile = req.files.filename.path;
+    var origname = req.files.filename.name;
+    var writestream = gfs.createWriteStream({
+      filename: origname
+    });
+    // open a stream to the temporary file created by Express...
+    fs.createReadStream(tempfile)
+      .on('end', function() {
+        res.send('OK');
+      })
+      .on('error', function() {
+        res.send('ERR');
+      })
+      // and pipe it to gfs
+      .pipe(writestream);
+  });
+
+  app.get('/download', function(req, res) {
+    // TODO: set proper mime type + filename, handle errors, etc...
+    gfs
+    // create a read stream from gfs...
+      .createReadStream({
+        filename: req.param('filename')
+      })
+      // and pipe it to Express' response
+      .pipe(res);
+  });
+
+  app.listen(3012);
 });
